@@ -1,4 +1,5 @@
 mod crawl;
+mod block_url;
 
 use crawl::crawl;
 use clap::{Arg, ArgAction, Command};

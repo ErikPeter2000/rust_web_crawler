@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use std::{error::Error, io};
 use url::Url;
 
-pub struct BlockedUrls {
+pub struct BlockedList {
 
 }
 
@@ -44,14 +44,15 @@ pub async fn check_robots(client: &Client,  connection: &Connection, url: &str) 
 }
 
 pub async fn check_blocked_list_db(connection: &Connection, url: &str) {
-    /*
     let blocked_list = connection.query_row(
         "SELECT Id, Url, Created FROM BlockedUrls WHERE Url = ?", 
         &[url],
         |row| {
-            Ok()
+            Ok(BlockedList {
+                
+            })
         }
-    ); */
+    ); 
 }
 
 pub async fn add_blocked_to_db(connection: &Connection) {

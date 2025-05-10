@@ -7,7 +7,7 @@ use std::error::Error;
 use url::Url;
 
 use crate::save_page;
-use crate::block_url::check_page;
+use crate::block_url::check_page_is_valid;
 
 pub async fn crawl(
     url_queue: &mut VecDeque<String>,
@@ -19,7 +19,7 @@ pub async fn crawl(
     
     // Check if the URL has already been crawled
     println!("url: {url}");
-    if is_url_crawled(connection, url)? || check_page(client, url).await? {
+    if is_url_crawled(connection, url)? || check_page_is_valid(client, connection, url).await? {
         info!("Skipping {}", url);
         return Ok(vec![]);
     }

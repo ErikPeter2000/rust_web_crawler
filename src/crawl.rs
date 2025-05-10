@@ -13,13 +13,20 @@ pub async fn crawl(
     url_queue: &mut VecDeque<String>,
     client: &Client,
     connection: &Connection,
-    url: &str
+    url: &str,
+    robots_flag: bool
 ) -> Result<Vec<String>, Box<dyn Error>> {
     info!("Crawling {}", url);
     
     // Check if the URL has already been crawled
     println!("url: {url}");
-    if is_url_crawled(connection, url)? || check_page_is_valid(client, connection, url).await? {
+    if is_url_crawled(connection, url)? {
+        if (robots_flag) {
+            if check_page_is_valid(client, connection, url).await? {
+                info!("Skipping {}", url);
+                return Ok(vec![]);
+            }
+        }
         info!("Skipping {}", url);
         return Ok(vec![]);
     }

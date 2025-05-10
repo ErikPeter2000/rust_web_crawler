@@ -49,6 +49,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .help("URL to start crawling")
                 .required(true)
         )
+        .arg(
+            Arg::new("robots")
+                .short('r')
+                .long("robots")
+                .help("Blocks checking /robots.txt (t or f)")
+                .default_value("t")
+        )
         .get_matches();
     
     // Initialize database if necessary
@@ -60,6 +67,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse start URL
     let start_url = arguments.get_one::<String>("url").unwrap();
+    let robots_flag = match arguments.get_one::<String>("robots").unwrap() {
+        s if *s == "f" => { 
+            false
+        },
+        s if *s == "t" => { 
+            true
+        },
+        _ => {
+            error!("Incorrect input to robots flag, for usage, please do --help");
+            true
+        }
+    };
     if !Url::parse(&start_url).is_ok() {
         error!("\"{}\" is not a valid URL", start_url);
         return Ok(());
@@ -80,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Dequeue and crawl next URL
         let url = url_queue.pop_front().unwrap();
-        crawl(&mut url_queue, &client, &connection, &url)
+        crawl(&mut url_queue, &client, &connection, &url, robots_flag)
             .await
             .inspect_err(|e| error!("Failed to crawl {}", e))
             .unwrap();

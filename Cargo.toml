@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+blake3 = "1.8.2"
 clap = "4.5.27"
 env_logger = "0.11.6"
 hex = "0.4.3"
+itertools = "0.14.0"
 log = "0.4.25"
+regex = "1.11.1"
 reqwest = "0.12.12"
 rusqlite = { version = "0.33.0", features = ["bundled"]}
 scraper = "0.22.0"

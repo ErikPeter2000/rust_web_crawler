@@ -1,25 +1,24 @@
 use clap::{Arg, ArgAction, Command};
 use env_logger;
-use hex::encode;
 use log::{error, info};
-use reqwest::Client;
 use rusqlite::Connection;
-use scraper::{Html, Selector};
-use sha2::{Digest, Sha256};
-use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 use url::Url;
 
+mod crawler;
+mod unique_queue;
+use crate::crawler::Crawler;
+
+const SAVE_DIR: &str = "pages";
 const DB_NAME: &str = "web_crawler.db";
 const CREATE_SCRIPT: &str = "scripts/create.sql";
-const SAVE_DIR: &str = "pages";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init(); // Initialize logger
+    std::env::set_var("RUST_LOG", "info");
+    env_logger::init();
 
-    // Specify command line arguments
     let arguments = Command::new("web_crawler_homework")
         .version("0.1.0")
         .author("Erik")
@@ -37,17 +36,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("depth")
                 .help("Number of iterations to crawl")
                 .value_parser(clap::value_parser!(u32))
-                .default_value("16")
+                .default_value("16"),
         )
         .arg(
             Arg::new("url")
                 .short('u')
                 .long("url")
                 .help("URL to start crawling")
-                .required(true)
+                .required(true),
+        )
+        .arg(
+            Arg::new("ignore-robots")
+                .short('i')
+                .long("ignore-robots")
+                .help("Ignore robots.txt rules when crawling")
+                .action(ArgAction::SetTrue),
         )
         .get_matches();
-    
+
     // Initialize database if necessary
     if arguments.get_flag("clean") || !fs::metadata(DB_NAME).is_ok() {
         initialize_data_store()
@@ -63,24 +69,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Start crawling
-    let client = Client::new();
     let connection = Connection::open(DB_NAME).unwrap();
     let iterations = arguments.get_one::<u32>("depth").unwrap();
-    let mut url_queue: VecDeque<_> = VecDeque::new();
+    let mut crawler = Crawler::new(start_url, "web_crawler_homework", Some(arguments.get_flag("ignore-robots")));
 
-    // Breadth-first search
-    url_queue.push_back(start_url.to_string());
     for _ in 0..*iterations {
-        if url_queue.is_empty() {
-            break;
+        let result = crawler.crawl().await;
+        match result {
+            Ok(true) => {
+                info!("Crawling completed successfully.");
+            }
+            Ok(false) => {
+                info!("No more URLs to crawl.");
+                break;
+            }
+            Err(e) => {
+                error!("Error during crawling: {}", e);
+            }
         }
-
-        // Dequeue and crawl next URL
-        let url = url_queue.pop_front().unwrap();
-        crawl(&mut url_queue, &client, &connection, &url)
-            .await
-            .inspect_err(|e| error!("Failed to crawl {}", e))
-            .unwrap();
     }
 
     connection.close().unwrap();
@@ -89,6 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn initialize_data_store() -> Result<(), Box<dyn Error>> {
+    info!("Initializing database...");
+
     // Remove existing pages
     if fs::metadata(SAVE_DIR).is_ok() {
         fs::remove_dir_all(SAVE_DIR)?;
@@ -107,94 +115,4 @@ fn initialize_data_store() -> Result<(), Box<dyn Error>> {
     connection.close().unwrap();
 
     Ok(())
-}
-
-fn save_page(
-    connection: &Connection,
-    url: &str,
-    html: &str,
-    links: &Vec<String>,
-) -> Result<String, Box<dyn Error>> {
-    // Hash HTML content
-    let mut hasher = Sha256::new();
-    hasher.update(html);
-    let hash = encode(hasher.finalize());
-
-    // Save HTML content to a file    
-    let filename = format!("{}.html", hash);
-    let filepath = format!("{}/{}", SAVE_DIR, filename);
-    fs::write(filepath, html)?;
-
-    // Save page to the database
-    connection.execute("INSERT INTO Page (Url, Hash) VALUES (?, ?)", &[url, &hash])?;
-    let page_id = connection.last_insert_rowid();
-
-    // Save links to the database
-    for link in links {
-        connection.execute(
-            "INSERT OR IGNORE INTO PageLink (PageId, Url) VALUES (?, ?)",
-            &[&page_id.to_string(), &link.to_string()],
-        )?;
-    }
-
-    Ok(filename)
-}
-
-fn is_url_crawled(connection: &Connection, url: &str) -> Result<bool, Box<dyn Error>> {
-    // Query database to check if URL exists
-    let exists = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM Page WHERE Url = ?)",
-        &[url],
-        |row| row.get(0),
-    )?;
-
-    Ok(exists)
-}
-
-async fn crawl(
-    url_queue: &mut VecDeque<String>,
-    client: &Client,
-    connection: &Connection,
-    url: &str
-) -> Result<Vec<String>, Box<dyn Error>> {
-    info!("Crawling {}", url);
-    
-    // Check if the URL has already been crawled
-    if is_url_crawled(connection, url)? {
-        info!("Skipping {}", url);
-        return Ok(vec![]);
-    }
-
-    // Fetch page
-    let result = client.get(url).send().await?;
-    let html = result.text().await?;
-
-    // Prepare to parse HTML
-    let document = Html::parse_document(&html);
-    let selector = Selector::parse("a").unwrap();
-
-    // Select all links
-    let urls: Vec<String> = document
-        .select(&selector)
-        .filter_map(|element| element.value().attr("href"))
-        .filter_map(|href| {
-            Url::parse(href)
-                .ok()
-                .or_else(|| Url::parse(&format!("{}/{}", url, href)).ok())
-        })
-        .map(|url| url.to_string())
-        .collect();
-
-    // Enqueue all links
-    urls.iter().for_each(|url| url_queue.push_back(url.clone()));
-
-    // Save page
-    let filename = save_page(connection, url, &html, &urls)
-        .inspect_err(|e| error!("Failed to save page {}", e))
-        .unwrap();
-
-    info!("Found {} links: {}", urls.len(), urls.join(", "));
-    info!("Saved page to {}", filename);
-
-    Ok(urls)
 }

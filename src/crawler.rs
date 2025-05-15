@@ -123,31 +123,21 @@ impl Crawler {
     /// # Returns
     /// An Option containing the resolved URL if successful, None otherwise.
     fn parse_href(&self, href: &str, base_url: &Url) -> Option<Url> {
-        if let Ok(mut new_url) = Url::parse(href) {
-            new_url.set_query(None);
-            new_url.set_fragment(None);
-            Some(new_url)
+        let mut new_url: Url;
+        if let Ok(parsed_url) = Url::parse(href) {
+            new_url = parsed_url;
         } else if href.starts_with("//") {
             let scheme = base_url.scheme();
-            let mut new_url = Url::parse(&format!("{}:{}", scheme, href)).ok()?;
-            new_url.set_query(None);
-            new_url.set_fragment(None);
-            Some(new_url)
+            new_url = Url::parse(&format!("{}:{}", scheme, href)).ok()?;
         } else if href.starts_with('/') {
-            let mut new_url = base_url.clone();
+            new_url = base_url.clone();
             new_url.set_path(href);
-            new_url.set_query(None);
-            new_url.set_fragment(None);
-            Some(new_url)
-        } else if href.starts_with('#') || href.starts_with('?') {
-            Some(base_url.clone())
         } else {
-            let mut new_url = base_url.clone();
-            new_url.join(href).ok()?;
-            new_url.set_query(None);
-            new_url.set_fragment(None);
-            Some(new_url)
+            new_url = base_url.clone();
         }
+        new_url.set_query(None);
+        new_url.set_fragment(None);
+        Some(new_url)
     }
 
     /// Records the url domain in the database, and returns the domain id.
